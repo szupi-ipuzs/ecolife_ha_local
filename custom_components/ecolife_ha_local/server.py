@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -27,6 +28,7 @@ _LOGGER = logging.getLogger(__name__)
 READ_TIMEOUT = 10  # seconds to receive a frame
 LINGER_TIMEOUT = 5  # seconds to wait for the device to close after our reply
 MAX_FRAME = 4096
+HISTORY_SIZE = 200  # decrypted frames kept for diagnostics (~1 h of telemetry)
 
 
 @dataclass(slots=True)
@@ -42,6 +44,7 @@ class DeviceState:
     last_seen: datetime | None = None
     last_registration: datetime | None = None
     remote_ip: str | None = None
+    history: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=HISTORY_SIZE))
 
 
 class EcolifeServer:
@@ -145,6 +148,7 @@ class EcolifeServer:
     ) -> bytes:
         now = dt_util.utcnow()
         state.last_seen = now
+        state.history.append({"time": now.isoformat(), "type": frame.type, "payload": payload})
         state.remote_ip = remote_ip
         if frame.type == FRAME_REGISTER:
             _LOGGER.debug("Registration from %s: %s", state.token, payload)

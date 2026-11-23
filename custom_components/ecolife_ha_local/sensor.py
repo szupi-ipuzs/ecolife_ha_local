@@ -13,12 +13,18 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
-    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
     PERCENTAGE,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
     UnitOfTemperature,
 )
+
+try:
+    from homeassistant.const import UnitOfDensity
+
+    UG_PER_M3 = UnitOfDensity.MICROGRAMS_PER_CUBIC_METER
+except ImportError:  # Home Assistant versions before UnitOfDensity
+    from homeassistant.const import CONCENTRATION_MICROGRAMS_PER_CUBIC_METER as UG_PER_M3
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -48,7 +54,7 @@ SENSORS: tuple[EcolifeLocalSensorDescription, ...] = (
     EcolifeLocalSensorDescription(
         key="pm25",
         device_class=SensorDeviceClass.PM25,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UG_PER_M3,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=0,
         value_fn=_value("pm25"),
@@ -56,7 +62,7 @@ SENSORS: tuple[EcolifeLocalSensorDescription, ...] = (
     EcolifeLocalSensorDescription(
         key="pm10",
         device_class=SensorDeviceClass.PM10,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UG_PER_M3,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=0,
         value_fn=_value("pm10"),

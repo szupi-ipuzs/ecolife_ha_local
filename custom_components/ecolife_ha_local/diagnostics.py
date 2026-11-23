@@ -32,6 +32,7 @@ async def async_get_config_entry_diagnostics(
                     "registration": state.registration,
                     "telemetry": state.telemetry,
                     "values": state.values,
+                    "history": list(state.history),
                 },
                 TO_REDACT,
             )

@@ -9,6 +9,7 @@ from homeassistant.const import CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.typing import UNDEFINED
 
 from .const import CONF_KEY, CONF_TOKEN, DOMAIN, SUBENTRY_DEVICE
 from .protocol import decode_key
@@ -80,5 +81,5 @@ def _async_update_device_info(
         serial_number=reg.get("UUID") or device.serial_number,
         sw_version=reg.get("firmwareVersion") or device.sw_version,
         hw_version=", ".join(reg["sensors"]) if isinstance(reg.get("sensors"), list) else device.hw_version,
-        merge_connections=connections,
+        new_connections=device.connections | connections if connections else UNDEFINED,
     )

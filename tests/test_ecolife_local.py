@@ -111,6 +111,7 @@ def test_interpret_placeholder_telemetry() -> None:
     """Placeholder readings (dust -1) give no PM values."""
     values = interpret_telemetry(PLACEHOLDER)
     assert values["pm25"] is None and values["pm10"] is None
+    assert values["temperature"] is None and values["humidity"] is None and values["voc"] is None
     assert values["rssi"] == -33 and values["led_brightness"] == 50
 
 
@@ -196,6 +197,10 @@ async def test_end_to_end(hass: HomeAssistant) -> None:
     await _send(port, encrypt_frame("Z", TOKEN, KEY, PLACEHOLDER))
     await hass.async_block_till_done()
     assert hass.states.get("sensor.living_room_pm2_5").state == "unknown"
+    assert hass.states.get("sensor.living_room_temperature").state == "unknown"
+    history = entry.runtime_data.devices[TOKEN].history
+    assert [h["type"] for h in history] == ["P", "Z", "Z"]
+    assert history[1]["payload"] == REAL
 
     assert await hass.config_entries.async_unload(entry.entry_id)
 

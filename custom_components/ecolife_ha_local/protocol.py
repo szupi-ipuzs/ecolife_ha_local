@@ -222,17 +222,22 @@ def interpret_telemetry(data: dict[str, Any]) -> dict[str, float | None]:
     out["pm25"] = pm25 if pm25 is not None and pm25 >= 0 else None
     out["pm10"] = pm10 if pm10 is not None and pm10 >= 0 and pm25 is not None and pm25 >= 0 else None
 
-    temp_raw = _item(data, "tempc", 0)
+    # [135000, 30000, 300] is reported while no real reading is available.
+    placeholder_tempc = data.get("tempc") == [135000, 30000, 300]
+    temp_raw = None if placeholder_tempc else _item(data, "tempc", 0)
     if temp_raw is None:
         out["temperature"] = None
     elif temp_raw > 100000:
         out["temperature"] = round((temp_raw - 111500) / 1000, 1)
     else:
         out["temperature"] = round(temp_raw / 1000, 1)
-    hum_raw = _item(data, "tempc", 1)
+    hum_raw = None if placeholder_tempc else _item(data, "tempc", 1)
     out["humidity"] = round(hum_raw / 1000, 1) if hum_raw is not None else None
 
+    # vocMM[0] stayed at 199 in every frame captured so far: not trusted as VOC.
     voc_raw = _item(data, "vocMM", 0)
+    if voc_raw == 199 and placeholder_tempc:
+        voc_raw = None
     voc_mul = data.get("vocMul", 0.5)
     out["voc"] = (
         round(voc_raw * voc_mul, 1)
