@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -13,11 +14,15 @@ from typing import Any
 from homeassistant.util import dt as dt_util
 
 from .protocol import (
+    FRAME_MEASUREMENTS,
     FRAME_REGISTER,
+    FRAME_TELEMETRY,
     Frame,
     ProtocolError,
     command_frame,
+    decrypt_json,
     decrypt_payload,
+    interpret_measurements,
     interpret_telemetry,
     parse_frame,
     register_reply,
@@ -42,8 +47,10 @@ class DeviceState:
     telemetry: dict[str, Any] | None = None
     values: dict[str, float | None] = field(default_factory=dict)
     last_seen: datetime | None = None
+    last_measurement: datetime | None = None
     last_registration: datetime | None = None
     remote_ip: str | None = None
+    measurements: Any = None
     history: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=HISTORY_SIZE))
 
 
@@ -59,6 +66,9 @@ class EcolifeServer:
         self._listeners: dict[str, list[Callable[[], None]]] = {}
         self._registration_listeners: list[Callable[[DeviceState], None]] = []
         self.unknown_tokens: dict[str, str] = {}  # token -> remote ip
+        self._udp: asyncio.DatagramTransport | None = None
+        # UDP datagrams that could not be decoded (kept for diagnostics).
+        self.raw_datagrams: deque[dict[str, Any]] = deque(maxlen=20)
 
     def add_device(self, token: str, key: bytes, subentry_id: str) -> DeviceState:
         """Register a device the server should answer."""
@@ -84,9 +94,20 @@ class EcolifeServer:
             self._handle, host=self.host, port=self.port, limit=MAX_FRAME
         )
         _LOGGER.debug("Listening on %s", [s.getsockname() for s in self._server.sockets])
+        # The device also sends a UDP datagram to the same port every ~30 s.
+        try:
+            self._udp, _ = await asyncio.get_running_loop().create_datagram_endpoint(
+                lambda: _UdpProtocol(self), local_addr=(self.host or "0.0.0.0", self.port)
+            )
+        except OSError:
+            await self.async_stop()
+            raise
 
     async def async_stop(self) -> None:
         """Stop listening."""
+        if self._udp:
+            self._udp.close()
+            self._udp = None
         if self._server:
             self._server.close()
             await self._server.wait_closed()
@@ -125,6 +146,20 @@ class EcolifeServer:
         except ProtocolError as err:
             _LOGGER.debug("Ignoring data from %s: %s", remote_ip, err)
             return None
+        if frame.type not in (FRAME_REGISTER, FRAME_TELEMETRY):
+            _LOGGER.debug("Unexpected %s-frame over TCP from %s", frame.type, remote_ip)
+            return None
+        state = self._known_device(frame, remote_ip)
+        if state is None:
+            return None
+        try:
+            payload = decrypt_payload(frame, state.key)
+        except ProtocolError as err:
+            _LOGGER.warning("Cannot decrypt frame of device %s: %s", frame.token, err)
+            return None
+        return self._dispatch(state, frame, payload, remote_ip)
+
+    def _known_device(self, frame: Frame, remote_ip: str) -> DeviceState | None:
         state = self.devices.get(frame.token)
         if state is None:
             if frame.token not in self.unknown_tokens:
@@ -136,12 +171,49 @@ class EcolifeServer:
                 )
             self.unknown_tokens[frame.token] = remote_ip
             return None
+        return state
+
+    def process_datagram(self, data: bytes, remote_ip: str) -> None:
+        """Handle a UDP datagram (format still being investigated: decode what we can)."""
+        now = dt_util.utcnow()
         try:
-            payload = decrypt_payload(frame, state.key)
+            frame = parse_frame(data)
         except ProtocolError as err:
-            _LOGGER.warning("Cannot decrypt frame of device %s: %s", frame.token, err)
-            return None
-        return self._dispatch(state, frame, payload, remote_ip)
+            self._keep_raw(data, remote_ip, str(err))
+            return
+        state = self._known_device(frame, remote_ip)
+        if state is None:
+            self._keep_raw(data, remote_ip, "unknown token")
+            return
+        try:
+            payload = decrypt_json(frame, state.key)
+        except ProtocolError as err:
+            self._keep_raw(data, remote_ip, str(err))
+            return
+        _LOGGER.debug("UDP %s-frame from %s: %s", frame.type, state.token, payload)
+        state.last_seen = now
+        state.remote_ip = remote_ip
+        state.history.append({"time": now.isoformat(), "type": f"udp:{frame.type}", "payload": payload})
+        if frame.type == FRAME_MEASUREMENTS:
+            values = interpret_measurements(payload)
+            if values:
+                state.measurements = payload
+                state.last_measurement = now
+                state.values.update(values)
+        for listener in list(self._listeners.get(state.token, [])):
+            listener()
+
+    def _keep_raw(self, data: bytes, remote_ip: str, reason: str) -> None:
+        _LOGGER.debug("Undecoded UDP datagram from %s (%s): %r", remote_ip, reason, data[:80])
+        self.raw_datagrams.append(
+            {
+                "time": dt_util.utcnow().isoformat(),
+                "remote_ip": remote_ip,
+                "reason": reason,
+                "length": len(data),
+                "base64": base64.b64encode(data).decode(),
+            }
+        )
 
     def _dispatch(
         self, state: DeviceState, frame: Frame, payload: dict[str, Any], remote_ip: str
@@ -160,8 +232,16 @@ class EcolifeServer:
         else:
             _LOGGER.debug("Telemetry from %s: %s", state.token, payload)
             state.telemetry = payload
-            state.values = interpret_telemetry(payload)
+            state.values.update(interpret_telemetry(payload))
             reply = command_frame(frame, state.key)
         for listener in list(self._listeners.get(state.token, [])):
             listener()
         return reply
+
+
+class _UdpProtocol(asyncio.DatagramProtocol):
+    def __init__(self, server: EcolifeServer) -> None:
+        self._server = server
+
+    def datagram_received(self, data: bytes, addr: tuple[str | Any, int]) -> None:
+        self._server.process_datagram(data, str(addr[0]))

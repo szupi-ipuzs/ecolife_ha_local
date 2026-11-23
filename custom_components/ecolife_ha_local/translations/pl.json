@@ -72,6 +72,9 @@
       },
       "last_seen": {
         "name": "Ostatnio widziane"
+      },
+      "pollution_level": {
+        "name": "Poziom zanieczyszczenia"
       }
     }
   },

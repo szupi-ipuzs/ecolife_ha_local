@@ -33,12 +33,15 @@ PORT_SELECTOR = NumberSelector(
 
 
 def _port_is_free(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            sock.bind(("", port))
-        except OSError:
-            return False
+    """The server needs the port for both TCP and UDP."""
+    for kind in (socket.SOCK_STREAM, socket.SOCK_DGRAM):
+        with socket.socket(socket.AF_INET, kind) as sock:
+            if kind == socket.SOCK_STREAM:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind(("", port))
+            except OSError:
+                return False
     return True
 
 

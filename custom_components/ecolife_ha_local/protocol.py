@@ -5,7 +5,10 @@ Device -> server, one frame per TCP connection, ASCII:
     <type> <base64(token)> <base64(IV)> <base64(AES-128-CBC(device key, IV, json))> "\\n"
 
 * ``type`` is ``P`` (registration, sent once after boot/provisioning) or
-  ``Z`` (telemetry, every ~20 s).
+  ``Z`` (status, every ~20 s), both over TCP, or ``D`` (measurements, every
+  ~30 s, a UDP datagram to the same port; no reply expected). The D payload is a
+  JSON array of ``{"uuid", "deviceTime", "sequenceNo", "measures": [{"type",
+  "unit", "value"}]}`` records.
 * The token is 8 characters, so its base64 is 12 chars ending in ``=``; the
   16-byte IV is 24 chars ending in ``==``; the ciphertext is zero padded.
 * P-frames are always 288 bytes: the line above, ``\\x00`` and 13 bytes that
@@ -47,7 +50,7 @@ TOKEN_LENGTH = 8
 KEY_LENGTH = 16
 
 _FRAME_RE = re.compile(
-    r"^(?P<type>[PZ])"
+    r"^(?P<type>[A-Z])"
     r"(?P<token>[A-Za-z0-9+/]+={0,2})"
     r"(?P<iv>[A-Za-z0-9+/]{22}==)"
     r"(?P<ct>[A-Za-z0-9+/]+={0,2})$"
@@ -91,23 +94,30 @@ def parse_frame(line: bytes) -> Frame:
     return Frame(match["type"], token, iv, ciphertext)
 
 
-def decrypt_payload(frame: Frame, key: bytes) -> dict[str, Any]:
-    """Decrypt a frame's JSON payload with the device key."""
-    plain = _aes_cbc(key, frame.iv, frame.ciphertext, encrypt=False)
-    text = plain.decode("utf-8", errors="ignore")
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end <= start:
+def decrypt_json(frame: Frame, key: bytes) -> Any:
+    """Decrypt a frame and return its JSON value (object or array)."""
+    text = _aes_cbc(key, frame.iv, frame.ciphertext, encrypt=False).decode(
+        "utf-8", errors="ignore"
+    )
+    starts = [i for i in (text.find("{"), text.find("[")) if i != -1]
+    if not starts:
         raise ProtocolError("decrypted payload is not JSON (wrong key?)")
     try:
-        data = json.loads(text[start : end + 1])
+        value, _ = json.JSONDecoder().raw_decode(text, min(starts))
     except json.JSONDecodeError as err:
         raise ProtocolError(f"decrypted payload is not JSON (wrong key?): {err}") from err
+    return value
+
+
+def decrypt_payload(frame: Frame, key: bytes) -> dict[str, Any]:
+    """Decrypt a P/Z frame, whose payload is a JSON object."""
+    data = decrypt_json(frame, key)
     if not isinstance(data, dict):
         raise ProtocolError("decrypted payload is not a JSON object")
     return data
 
 
-def encrypt_frame(frame_type: str, token: str, key: bytes, payload: dict[str, Any]) -> bytes:
+def encrypt_frame(frame_type: str, token: str, key: bytes, payload: Any) -> bytes:
     """Build a device frame (used by tests and tools to emulate a device)."""
     iv = os.urandom(16)
     raw = json.dumps(payload, separators=(",", ":")).encode()
@@ -197,54 +207,62 @@ def decrypt_provisioning_reply(reply: bytes, key_b64: str) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
-# Telemetry interpretation.
-#
-# Only placeholder telemetry has been captured so far
-# (dustMM [-1, 0], vocMM [199, 892], tempc [135000, 30000, 300]), so these
-# conversions follow the research bridge (ecolife_mqtt_bridge.py) and must be
-# verified against real readings. Keep all scaling in this one function.
+# Interpretation.
 # --------------------------------------------------------------------------
 
+FRAME_MEASUREMENTS = "D"
 
-def _item(data: dict[str, Any], key: str, index: int) -> float | None:
-    value = data.get(key)
-    if isinstance(value, list) and len(value) > index and isinstance(value[index], (int, float)):
-        return float(value[index])
-    return None
+# measure type -> (sensor key, factor). Scaling verified against the values the
+# EcoLife cloud showed for the same device: PRESSURE is Pa (cloud shows hPa),
+# PM values are sent multiplied by 100.
+MEASURES: dict[str, tuple[str, float]] = {
+    "PRESSURE": ("pressure", 0.01),
+    "TEMP": ("temperature", 1),
+    "HUMIDITY": ("humidity", 1),
+    "VOC": ("voc", 1),
+    "PM25": ("pm25", 0.01),
+    "PM10": ("pm10", 0.01),
+    "LIGHT": ("illuminance", 1),
+}
+PM25_NORM = 25.0  # µg/m³, used by the cloud for its "contamination" index
+PM10_NORM = 50.0
+
+
+def latest_record(data: Any) -> dict[str, Any] | None:
+    """Pick the newest record of a D-frame (a list, possibly with backlog)."""
+    records = [r for r in (data if isinstance(data, list) else [data]) if isinstance(r, dict)]
+    if not records:
+        return None
+    return max(records, key=lambda r: r.get("sequenceNo", -1) if isinstance(r.get("sequenceNo"), int) else -1)
+
+
+def interpret_measurements(data: Any) -> dict[str, float | None]:
+    """Convert a D-frame payload into sensor values."""
+    record = latest_record(data)
+    out: dict[str, float | None] = {}
+    if record is None:
+        return out
+    for measure in record.get("measures") or []:
+        if not isinstance(measure, dict):
+            continue
+        mapping = MEASURES.get(str(measure.get("type")))
+        value = measure.get("value")
+        if mapping is None or not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        key, factor = mapping
+        out[key] = round(value * factor, 2)
+    pm25, pm10 = out.get("pm25"), out.get("pm10")
+    if pm25 is not None or pm10 is not None:
+        # Same formula as the cloud's CONTAMINATION value: worst PM as % of norm.
+        out["pollution_level"] = round(
+            max((pm25 or 0) / PM25_NORM, (pm10 or 0) / PM10_NORM) * 100
+        )
+    return out
 
 
 def interpret_telemetry(data: dict[str, Any]) -> dict[str, float | None]:
-    """Convert a Z-frame payload into sensor values (None = not available)."""
+    """Values from a Z-frame (status). Its tempc/dustMM/vocMM are not readings."""
     out: dict[str, float | None] = {}
-
-    pm25, pm10 = _item(data, "dustMM", 0), _item(data, "dustMM", 1)
-    # -1 is what the device reports while the dust sensor has no reading.
-    out["pm25"] = pm25 if pm25 is not None and pm25 >= 0 else None
-    out["pm10"] = pm10 if pm10 is not None and pm10 >= 0 and pm25 is not None and pm25 >= 0 else None
-
-    # [135000, 30000, 300] is reported while no real reading is available.
-    placeholder_tempc = data.get("tempc") == [135000, 30000, 300]
-    temp_raw = None if placeholder_tempc else _item(data, "tempc", 0)
-    if temp_raw is None:
-        out["temperature"] = None
-    elif temp_raw > 100000:
-        out["temperature"] = round((temp_raw - 111500) / 1000, 1)
-    else:
-        out["temperature"] = round(temp_raw / 1000, 1)
-    hum_raw = None if placeholder_tempc else _item(data, "tempc", 1)
-    out["humidity"] = round(hum_raw / 1000, 1) if hum_raw is not None else None
-
-    # vocMM[0] stayed at 199 in every frame captured so far: not trusted as VOC.
-    voc_raw = _item(data, "vocMM", 0)
-    if voc_raw == 199 and placeholder_tempc:
-        voc_raw = None
-    voc_mul = data.get("vocMul", 0.5)
-    out["voc"] = (
-        round(voc_raw * voc_mul, 1)
-        if voc_raw is not None and isinstance(voc_mul, (int, float))
-        else None
-    )
-
     rssi = data.get("RSSI")
     out["rssi"] = float(rssi) if isinstance(rssi, (int, float)) else None
     bright = data.get("bright")

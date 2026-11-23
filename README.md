@@ -36,20 +36,24 @@ The ECL01 only supports soft-AP pairing, so a computer with Wi-Fi does the provi
 
 | Direction | Frame |
 |---|---|
-| device → HA | `P`/`Z` + base64(token) + base64(IV) + base64(AES-128-CBC(key, IV, JSON)) + `\n` (P-frames: plus `\x00` and 13 more bytes, 288 bytes total) |
+| device → HA, TCP | `P`/`Z` + base64(token) + base64(IV) + base64(AES-128-CBC(key, IV, JSON)) + `\n` (P-frames: plus `\x00` and 13 more bytes, 288 bytes total) |
 | HA → device, after `P` | base64(AES-128-CBC(**soft-AP key**, IV of the P-frame, `OK` + 14 bytes)) |
 | HA → device, after `Z` | `S` + base64(IV of the Z-frame) + base64(AES-128-CBC(key, same IV, `{"cm":"NONE"}` padded)) |
+| device → HA, **UDP**, every ~30 s | `D` + the same layout; payload is a JSON array of `{uuid, deviceTime, sequenceNo, measures: [{type, unit, value}]}`. No reply. |
+
+Z-frames are device status (signal, LED brightness, firmware); their `tempc`/`dustMM`/`vocMM` fields are
+not readings. The readings come from D-frames: `PRESSURE` in Pa (shown as hPa), `TEMP` °C, `HUMIDITY` %,
+`VOC`, and `PM25`/`PM10` multiplied by 100. *Pollution level* uses the cloud's formula: the worse of
+PM2.5/25 and PM10/50, in %.
 
 The P-frame answer was derived from the cloud's answers in MITM captures: all of them decrypt to `OK…` this way.
 
 ## Status / known gaps
 
-* Telemetry has so far only been captured with placeholder values (`dustMM [-1,0]`,
-  `tempc [135000,30000,300]`). Scaling of temperature, humidity and VOC follows the research bridge
-  and **must be verified** with real readings. All conversions are in `protocol.interpret_telemetry`.
-  The **Download diagnostics** file contains the raw decrypted frames to help with that.
-* Pressure is not exposed: no captured frame contains it yet.
 * LED brightness is only reported, not controllable: the S-frame command for it is not known yet.
+* The server needs port 58300 for **both TCP and UDP**. When Home Assistant runs in Docker without
+  host networking, publish `58300:58300/udp` as well.
+* **Download diagnostics** contains the last 200 decrypted frames, for protocol research.
 
 ## Development
 

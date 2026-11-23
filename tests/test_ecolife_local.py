@@ -27,7 +27,9 @@ from custom_components.ecolife_ha_local.protocol import (
     decrypt_payload,
     decrypt_provisioning_reply,
     encrypt_frame,
+    interpret_measurements,
     interpret_telemetry,
+    decrypt_json,
     parse_frame,
     provisioning_payload,
     register_reply,
@@ -54,7 +56,20 @@ PLACEHOLDER = {
     "dustMM": [-1, 0], "vocMM": [199, 892], "color": [87, 177, 8],
     "tempc": [135000, 30000, 300], "stmFwVer": "000C07", "stmBootVer": "000600", "espFwVer": "01000B",
 }
-REAL = {**PLACEHOLDER, "dustMM": [12, 18], "tempc": [21300, 44100, 300]}
+# D-frame payload, shaped like the captured UDP datagrams.
+MEASURES = [
+    {
+        "uuid": "0000000000000000000000AA", "deviceTime": 1795477950, "sequenceNo": 2050,
+        "measures": [
+            {"type": "PRESSURE", "unit": "Pa", "value": 98745},
+            {"type": "TEMP", "unit": "C", "value": 22},
+            {"type": "VOC", "unit": "chwc", "value": 145},
+            {"type": "HUMIDITY", "unit": "pc", "value": 42},
+            {"type": "PM25", "unit": "ugm3", "value": 200},
+            {"type": "PM10", "unit": "ugm3", "value": 300},
+        ],
+    }
+]
 
 
 def p_frame() -> bytes:
@@ -110,9 +125,28 @@ def test_provisioning_payload_roundtrip() -> None:
 def test_interpret_placeholder_telemetry() -> None:
     """Placeholder readings (dust -1) give no PM values."""
     values = interpret_telemetry(PLACEHOLDER)
-    assert values["pm25"] is None and values["pm10"] is None
-    assert values["temperature"] is None and values["humidity"] is None and values["voc"] is None
-    assert values["rssi"] == -33 and values["led_brightness"] == 50
+    assert values == {"rssi": -33, "led_brightness": 50}
+
+
+def test_measurements_scaling_and_trailing_junk() -> None:
+    """D-frames: JSON array + '\n\x00' + junk; Pa -> hPa, PM / 100, cloud pollution index."""
+    raw = json.dumps(MEASURES, separators=(",", ":")).encode() + b"\n\x00\xd6\xbf\x026"
+    raw += b"\x00" * (-len(raw) % 16)
+    iv = os.urandom(16)
+    line = b"D" + base64.b64encode(TOKEN.encode()) + base64.b64encode(iv) + base64.b64encode(
+        _aes_cbc(KEY, iv, raw, encrypt=True)
+    )
+    frame = parse_frame(line)
+    assert frame.type == "D"
+    payload = decrypt_json(frame, KEY)
+    assert payload == MEASURES
+    assert interpret_measurements(payload) == {
+        "pressure": 987.45, "temperature": 22, "voc": 145, "humidity": 42,
+        "pm25": 2.0, "pm10": 3.0, "pollution_level": 8,
+    }
+    # With a backlog the newest record (highest sequenceNo) wins.
+    older = {**MEASURES[0], "sequenceNo": 2049, "measures": [{"type": "TEMP", "unit": "C", "value": 5}]}
+    assert interpret_measurements([MEASURES[0], older])["temperature"] == 22
 
 
 # --- Home Assistant -----------------------------------------------------------
@@ -180,27 +214,29 @@ async def test_end_to_end(hass: HomeAssistant) -> None:
     assert device.sw_version == "0.12.7"
     assert (dr.CONNECTION_NETWORK_MAC, "aa:bb:cc:dd:ee:ff") in device.connections
 
-    z = encrypt_frame("Z", TOKEN, KEY, REAL)
+    z = encrypt_frame("Z", TOKEN, KEY, PLACEHOLDER)
     reply = await _send(port, z)
     assert reply.startswith(b"S") and len(reply) == 49
     zf = parse_frame(z)
     assert _aes_cbc(KEY, zf.iv, base64.b64decode(reply[25:]), encrypt=False).startswith(b'{"cm":"NONE"}')
     await hass.async_block_till_done()
-
-    assert hass.states.get("sensor.living_room_pm2_5").state == "12.0"
-    assert hass.states.get("sensor.living_room_pm10").state == "18.0"
-    assert hass.states.get("sensor.living_room_temperature").state == "21.3"
-    assert hass.states.get("sensor.living_room_humidity").state == "44.1"
     assert hass.states.get("sensor.living_room_led_brightness").state == "50.0"
+    # Z-frames carry no readings: measurement sensors stay unavailable.
+    assert hass.states.get("sensor.living_room_temperature").state == "unavailable"
 
-    # Placeholder telemetry -> PM unknown, but device still online
-    await _send(port, encrypt_frame("Z", TOKEN, KEY, PLACEHOLDER))
+    await _send_udp(port, encrypt_frame("D", TOKEN, KEY, MEASURES))
     await hass.async_block_till_done()
-    assert hass.states.get("sensor.living_room_pm2_5").state == "unknown"
-    assert hass.states.get("sensor.living_room_temperature").state == "unknown"
+    assert hass.states.get("sensor.living_room_pm2_5").state == "2.0"
+    assert hass.states.get("sensor.living_room_pm10").state == "3.0"
+    assert hass.states.get("sensor.living_room_temperature").state == "22"
+    assert hass.states.get("sensor.living_room_humidity").state == "42"
+    assert hass.states.get("sensor.living_room_voc").state == "145"
+    assert hass.states.get("sensor.living_room_atmospheric_pressure").state == "987.45"
+    assert hass.states.get("sensor.living_room_pollution_level").state == "8"
+
     history = entry.runtime_data.devices[TOKEN].history
-    assert [h["type"] for h in history] == ["P", "Z", "Z"]
-    assert history[1]["payload"] == REAL
+    assert [h["type"] for h in history] == ["P", "Z", "udp:D"]
+    assert history[2]["payload"] == MEASURES
 
     assert await hass.config_entries.async_unload(entry.entry_id)
 
@@ -285,3 +321,31 @@ async def test_port_taken(hass: HomeAssistant) -> None:
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
         assert entry.state is ConfigEntryState.SETUP_RETRY
+
+
+async def _send_udp(port: int, *datagrams: bytes) -> None:
+    transport, _ = await asyncio.get_running_loop().create_datagram_endpoint(
+        asyncio.DatagramProtocol, remote_addr=("127.0.0.1", port)
+    )
+    for datagram in datagrams:
+        transport.sendto(datagram)
+    await asyncio.sleep(0.2)
+    transport.close()
+
+
+async def test_undecodable_datagrams(hass: HomeAssistant) -> None:
+    """Datagrams that cannot be decoded are kept raw for diagnostics."""
+    port = _free_port()
+    entry = _entry(port)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    await _send_udp(port, b"\x01\x02 not a frame", encrypt_frame("D", TOKEN, os.urandom(16), MEASURES))
+    await hass.async_block_till_done()
+
+    server = entry.runtime_data
+    assert server.devices[TOKEN].last_measurement is None
+    assert len(server.raw_datagrams) == 2
+    assert base64.b64decode(server.raw_datagrams[0]["base64"]) == b"\x01\x02 not a frame"
+    assert await hass.config_entries.async_unload(entry.entry_id)

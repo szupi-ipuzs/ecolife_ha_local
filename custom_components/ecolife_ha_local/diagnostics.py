@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from . import EcolifeLocalConfigEntry
 from .const import CONF_KEY
 
-TO_REDACT = {CONF_KEY, "MAC", "IP", "UUID", "remote_ip"}
+TO_REDACT = {CONF_KEY, "MAC", "IP", "UUID", "uuid", "remote_ip"}
 
 
 async def async_get_config_entry_diagnostics(
@@ -22,6 +22,7 @@ async def async_get_config_entry_diagnostics(
         "entry": async_redact_data(entry.as_dict(), TO_REDACT),
         "port": server.port,
         "unknown_tokens": list(server.unknown_tokens),
+        "undecoded_udp": async_redact_data(list(server.raw_datagrams), TO_REDACT),
         "devices": [
             async_redact_data(
                 {
@@ -31,6 +32,8 @@ async def async_get_config_entry_diagnostics(
                     "remote_ip": state.remote_ip,
                     "registration": state.registration,
                     "telemetry": state.telemetry,
+                    "measurements": state.measurements,
+                    "last_measurement": state.last_measurement,
                     "values": state.values,
                     "history": list(state.history),
                 },

@@ -14,8 +14,10 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import (
     PERCENTAGE,
+    LIGHT_LUX,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
+    UnitOfPressure,
     UnitOfTemperature,
 )
 
@@ -43,7 +45,8 @@ class EcolifeLocalSensorDescription(SensorEntityDescription):
     """Sensor fed from the device state."""
 
     value_fn: Callable[[DeviceState], float | str | datetime | None]
-    needs_online: bool = True
+    # "measurement": fresh D-frame needed; "frame": any frame; None: always available
+    freshness: str | None = "frame"
 
 
 def _value(key: str) -> Callable[[DeviceState], float | None]:
@@ -58,6 +61,7 @@ SENSORS: tuple[EcolifeLocalSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=0,
         value_fn=_value("pm25"),
+        freshness="measurement",
     ),
     EcolifeLocalSensorDescription(
         key="pm10",
@@ -66,6 +70,7 @@ SENSORS: tuple[EcolifeLocalSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=0,
         value_fn=_value("pm10"),
+        freshness="measurement",
     ),
     EcolifeLocalSensorDescription(
         key="temperature",
@@ -74,6 +79,7 @@ SENSORS: tuple[EcolifeLocalSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
         value_fn=_value("temperature"),
+        freshness="measurement",
     ),
     EcolifeLocalSensorDescription(
         key="humidity",
@@ -82,6 +88,7 @@ SENSORS: tuple[EcolifeLocalSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=0,
         value_fn=_value("humidity"),
+        freshness="measurement",
     ),
     EcolifeLocalSensorDescription(
         key="voc",
@@ -89,6 +96,34 @@ SENSORS: tuple[EcolifeLocalSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=0,
         value_fn=_value("voc"),
+        freshness="measurement",
+    ),
+    EcolifeLocalSensorDescription(
+        key="pressure",
+        device_class=SensorDeviceClass.ATMOSPHERIC_PRESSURE,
+        native_unit_of_measurement=UnitOfPressure.HPA,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        value_fn=_value("pressure"),
+        freshness="measurement",
+    ),
+    EcolifeLocalSensorDescription(
+        key="pollution_level",
+        translation_key="pollution_level",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        value_fn=_value("pollution_level"),
+        freshness="measurement",
+    ),
+    EcolifeLocalSensorDescription(
+        key="illuminance",
+        device_class=SensorDeviceClass.ILLUMINANCE,
+        native_unit_of_measurement=LIGHT_LUX,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+        value_fn=_value("illuminance"),
+        freshness="measurement",
     ),
     EcolifeLocalSensorDescription(
         key="rssi",
@@ -119,7 +154,7 @@ SENSORS: tuple[EcolifeLocalSensorDescription, ...] = (
         device_class=SensorDeviceClass.TIMESTAMP,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda state: state.last_seen,
-        needs_online=False,
+        freshness=None,
     ),
 )
 
@@ -186,9 +221,10 @@ class EcolifeLocalSensor(SensorEntity):
     @property
     def available(self) -> bool:
         """Online if a frame arrived recently."""
-        if not self.entity_description.needs_online:
+        freshness = self.entity_description.freshness
+        if freshness is None:
             return True
-        last = self._state.last_seen
+        last = self._state.last_measurement if freshness == "measurement" else self._state.last_seen
         return last is not None and (dt_util.utcnow() - last).total_seconds() < OFFLINE_AFTER
 
     @property
