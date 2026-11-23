@@ -1,0 +1,10 @@
+{
+  "entity": {
+    "sensor": {
+      "voc": { "default": "mdi:molecule" },
+      "led_brightness": { "default": "mdi:brightness-6" },
+      "ip_address": { "default": "mdi:ip-network" },
+      "last_seen": { "default": "mdi:clock-outline" }
+    }
+  }
+}

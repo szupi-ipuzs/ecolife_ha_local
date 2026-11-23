@@ -1,0 +1,83 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Lokalny serwer EcoLife",
+        "description": "Home Assistant będzie nasłuchiwać na tym porcie TCP i działać jako serwer EcoLife. Urządzenia dodaje się potem przyciskiem **Dodaj urządzenie**.",
+        "data": {
+          "port": "Port"
+        },
+        "data_description": {
+          "port": "Domyślnie 58300, tak jak w chmurze EcoLife."
+        }
+      }
+    },
+    "error": {
+      "port_in_use": "Ten port jest już zajęty na hoście Home Assistant."
+    },
+    "abort": {
+      "already_configured": "Serwer na tym porcie jest już skonfigurowany."
+    }
+  },
+  "config_subentries": {
+    "device": {
+      "entry_type": "Urządzenie",
+      "initiate_flow": {
+        "user": "Dodaj urządzenie"
+      },
+      "step": {
+        "user": {
+          "title": "Dodaj urządzenie EcoLife",
+          "menu_options": {
+            "new_device": "Nowe urządzenie (do sparowania)",
+            "existing_device": "Już sparowane urządzenie (token i klucz)"
+          }
+        },
+        "new_device": {
+          "title": "Parowanie nowego urządzenia",
+          "description": "Dla nowego urządzenia wygenerowano dane:\n\n* Serwer: `{host}:{port}`\n* Token: `{token}`\n* Klucz: `{key}`\n\n1. Przytrzymaj górę urządzenia, aż wejdzie w tryb parowania (pojawi się sieć Wi-Fi `ecolife-add-device`).\n2. Połącz komputer z siecią `ecolife-add-device`.\n3. Uruchom narzędzie `provision_device.py` z repozytorium tej integracji:\n\n`{command}`\n\n4. Zatwierdź ten formularz. Urządzenie pojawi się, gdy tylko połączy się z Home Assistant.\n\nJeśli `{host}` nie jest adresem, pod którym urządzenie widzi Home Assistant, podaj właściwy w `--host`.",
+          "data": {
+            "name": "Nazwa"
+          }
+        },
+        "existing_device": {
+          "title": "Dodaj sparowane urządzenie",
+          "description": "Podaj token i klucz, z którymi urządzenie zostało sparowane. Urządzenie musi raportować do tego serwera (jego adresem serwera musi być ten Home Assistant).",
+          "data": {
+            "name": "Nazwa",
+            "token": "Token",
+            "key": "Klucz (base64)"
+          }
+        }
+      },
+      "error": {
+        "invalid_token": "Token musi mieć 8 liter lub cyfr.",
+        "invalid_key": "Klucz musi mieć 16 bajtów zakodowanych w base64."
+      },
+      "abort": {
+        "already_configured": "To urządzenie jest już dodane."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "voc": {
+        "name": "VOC"
+      },
+      "led_brightness": {
+        "name": "Jasność LED"
+      },
+      "ip_address": {
+        "name": "Adres IP"
+      },
+      "last_seen": {
+        "name": "Ostatnio widziane"
+      }
+    }
+  },
+  "exceptions": {
+    "port_unavailable": {
+      "message": "Nie można nasłuchiwać na porcie {port}: {error}"
+    }
+  }
+}

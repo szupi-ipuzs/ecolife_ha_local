@@ -1,0 +1,83 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EcoLife local server",
+        "description": "Home Assistant will listen on this TCP port and act as the EcoLife report server. Devices are added afterwards with **Add device**.",
+        "data": {
+          "port": "Port"
+        },
+        "data_description": {
+          "port": "Default 58300, the same as the EcoLife cloud."
+        }
+      }
+    },
+    "error": {
+      "port_in_use": "This port is already in use on the Home Assistant host."
+    },
+    "abort": {
+      "already_configured": "A server on this port is already configured."
+    }
+  },
+  "config_subentries": {
+    "device": {
+      "entry_type": "Device",
+      "initiate_flow": {
+        "user": "Add device"
+      },
+      "step": {
+        "user": {
+          "title": "Add EcoLife device",
+          "menu_options": {
+            "new_device": "New device (provision it)",
+            "existing_device": "Already provisioned device (token and key)"
+          }
+        },
+        "new_device": {
+          "title": "Provision a new device",
+          "description": "These credentials were generated for the new device:\n\n* Report server: `{host}:{port}`\n* Token: `{token}`\n* Key: `{key}`\n\n1. Long-touch the top of the device until it enters pairing mode (Wi-Fi network `ecolife-add-device` appears).\n2. Connect a computer to `ecolife-add-device`.\n3. Run the `provision_device.py` tool from this integration's repository:\n\n`{command}`\n\n4. Submit this form. The device appears as soon as it reports to Home Assistant.\n\nIf `{host}` is not the address the device can reach Home Assistant at, use the correct one with `--host`.",
+          "data": {
+            "name": "Name"
+          }
+        },
+        "existing_device": {
+          "title": "Add provisioned device",
+          "description": "Enter the token and key the device was provisioned with. The device must report to this server (its report host must be this Home Assistant).",
+          "data": {
+            "name": "Name",
+            "token": "Token",
+            "key": "Key (base64)"
+          }
+        }
+      },
+      "error": {
+        "invalid_token": "The token must be 8 letters or digits.",
+        "invalid_key": "The key must be 16 bytes encoded as base64."
+      },
+      "abort": {
+        "already_configured": "This device is already added."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "voc": {
+        "name": "VOC"
+      },
+      "led_brightness": {
+        "name": "LED brightness"
+      },
+      "ip_address": {
+        "name": "IP address"
+      },
+      "last_seen": {
+        "name": "Last seen"
+      }
+    }
+  },
+  "exceptions": {
+    "port_unavailable": {
+      "message": "Cannot listen on port {port}: {error}"
+    }
+  }
+}
