@@ -135,13 +135,6 @@ SENSORS: tuple[EcolifeLocalSensorDescription, ...] = (
         value_fn=_value("rssi"),
     ),
     EcolifeLocalSensorDescription(
-        key="led_brightness",
-        translation_key="led_brightness",
-        native_unit_of_measurement=PERCENTAGE,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=_value("led_brightness"),
-    ),
-    EcolifeLocalSensorDescription(
         key="ip_address",
         translation_key="ip_address",
         entity_category=EntityCategory.DIAGNOSTIC,

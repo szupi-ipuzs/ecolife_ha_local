@@ -220,7 +220,7 @@ async def test_end_to_end(hass: HomeAssistant) -> None:
     zf = parse_frame(z)
     assert _aes_cbc(KEY, zf.iv, base64.b64decode(reply[25:]), encrypt=False).startswith(b'{"cm":"NONE"}')
     await hass.async_block_till_done()
-    assert hass.states.get("sensor.living_room_led_brightness").state == "50.0"
+    assert hass.states.get("number.living_room_led_brightness").state == "50"
     # Z-frames carry no readings: measurement sensors stay unavailable.
     assert hass.states.get("sensor.living_room_temperature").state == "unavailable"
 
@@ -348,4 +348,65 @@ async def test_undecodable_datagrams(hass: HomeAssistant) -> None:
     assert server.devices[TOKEN].last_measurement is None
     assert len(server.raw_datagrams) == 2
     assert base64.b64decode(server.raw_datagrams[0]["base64"]) == b"\x01\x02 not a frame"
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_led_schedule_command(hass: HomeAssistant) -> None:
+    """Changing the LED schedule sends BRIGHTIME once, with the next S-frame."""
+    port = _free_port()
+    entry = _entry(port)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert hass.states.get("number.living_room_led_schedule_start").state == "0"
+    assert hass.states.get("number.living_room_led_schedule_end").state == "24"
+
+    for entity, value in (("number.living_room_led_schedule_start", 22), ("number.living_room_led_schedule_end", 6)):
+        await hass.services.async_call(
+            "number", "set_value", {"entity_id": entity, "value": value}, blocking=True
+        )
+
+    async def command_for_next_z() -> dict:
+        z = encrypt_frame("Z", TOKEN, KEY, PLACEHOLDER)
+        reply = await _send(port, z)
+        plain = _aes_cbc(KEY, parse_frame(z).iv, base64.b64decode(reply[25:]), encrypt=False)
+        return json.JSONDecoder().raw_decode(plain.decode("latin-1"))[0]
+
+    # One command with both hours (the second change replaced the first), crossing midnight.
+    assert await command_for_next_z() == {"cm": "BRIGHTIME", "data": [22, 6]}
+    assert await command_for_next_z() == {"cm": "NONE"}
+    assert entry.runtime_data.devices[TOKEN].last_command == {"cm": "BRIGHTIME", "data": [22, 6]}
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_led_brightness_command(hass: HomeAssistant) -> None:
+    """Brightness: R-frame with BRIGHT (string), then S-frame with BRIGHTIME, like the cloud."""
+    port = _free_port()
+    entry = _entry(port)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    async def next_reply() -> tuple[bytes, dict]:
+        z = encrypt_frame("Z", TOKEN, KEY, PLACEHOLDER)  # reports "bright": 50
+        reply = await _send(port, z)
+        plain = _aes_cbc(KEY, parse_frame(z).iv, base64.b64decode(reply[25:]), encrypt=False)
+        return reply[:1], json.JSONDecoder().raw_decode(plain.decode("latin-1"))[0]
+
+    assert await next_reply() == (b"S", {"cm": "NONE"})
+    await hass.async_block_till_done()
+    assert hass.states.get("number.living_room_led_brightness").state == "50"
+
+    await hass.services.async_call(
+        "number", "set_value", {"entity_id": "number.living_room_led_brightness", "value": 100}, blocking=True
+    )
+    # Shows the requested value while the command is pending.
+    assert hass.states.get("number.living_room_led_brightness").state == "100"
+
+    assert await next_reply() == (b"R", {"cm": "BRIGHT", "data": "100"})
+    assert await next_reply() == (b"S", {"cm": "BRIGHTIME", "data": [0, 24]})
+    assert await next_reply() == (b"S", {"cm": "NONE"})
+    history = [h["type"] for h in entry.runtime_data.devices[TOKEN].history if h["type"] in ("R", "S")]
+    assert history == ["R", "S"]
     assert await hass.config_entries.async_unload(entry.entry_id)

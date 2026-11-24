@@ -38,7 +38,7 @@ The ECL01 only supports soft-AP pairing, so a computer with Wi-Fi does the provi
 |---|---|
 | device → HA, TCP | `P`/`Z` + base64(token) + base64(IV) + base64(AES-128-CBC(key, IV, JSON)) + `\n` (P-frames: plus `\x00` and 13 more bytes, 288 bytes total) |
 | HA → device, after `P` | base64(AES-128-CBC(**soft-AP key**, IV of the P-frame, `OK` + 14 bytes)) |
-| HA → device, after `Z` | `S` + base64(IV of the Z-frame) + base64(AES-128-CBC(key, same IV, `{"cm":"NONE"}` padded)) |
+| HA → device, after `Z` | `S` + base64(IV of the Z-frame) + base64(AES-128-CBC(key, same IV, command JSON padded)). The command is `{"cm":"NONE"}` when idle. `R` instead of `S` means "more commands follow": the device reports again within ~1 s to fetch the next one. |
 | device → HA, **UDP**, every ~30 s | `D` + the same layout; payload is a JSON array of `{uuid, deviceTime, sequenceNo, measures: [{type, unit, value}]}`. No reply. |
 
 Z-frames are device status (signal, LED brightness, firmware); their `tempc`/`dustMM`/`vocMM` fields are
@@ -50,7 +50,13 @@ The P-frame answer was derived from the cloud's answers in MITM captures: all of
 
 ## Status / known gaps
 
-* LED brightness is only reported, not controllable: the S-frame command for it is not known yet.
+* LED control, using the commands captured from the cloud:
+  * *LED brightness* (0–100 %, steps of 10): `{"cm":"BRIGHT","data":"40"}`. The value is a string.
+  * *LED schedule start/end*: `{"cm":"BRIGHTIME","data":[start,end]}`.
+
+  Like the cloud, any change sends both: `BRIGHT` in an `R` reply, then `BRIGHTIME` in an `S` reply.
+  They go out with the device's next report (~20 s). The device reports its brightness, but not its
+  schedule, so Home Assistant remembers the hours it sent.
 * The server needs port 58300 for **both TCP and UDP**. When Home Assistant runs in Docker without
   host networking, publish `58300:58300/udp` as well.
 * **Download diagnostics** contains the last 200 decrypted frames, for protocol research.

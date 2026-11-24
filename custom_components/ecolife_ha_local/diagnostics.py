@@ -35,6 +35,8 @@ async def async_get_config_entry_diagnostics(
                     "measurements": state.measurements,
                     "last_measurement": state.last_measurement,
                     "values": state.values,
+                    "pending_commands": list(state.pending.values()),
+                    "last_command": state.last_command,
                     "history": list(state.history),
                 },
                 TO_REDACT,

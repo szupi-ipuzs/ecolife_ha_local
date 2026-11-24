@@ -52,6 +52,22 @@ class DeviceState:
     remote_ip: str | None = None
     measurements: Any = None
     history: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=HISTORY_SIZE))
+    # Commands for the device, keyed by "cm" (a newer command of the same kind
+    # replaces an older one). One is sent in each S-frame answering a Z-frame.
+    pending: dict[str, dict[str, Any]] = field(default_factory=dict)
+    last_command: dict[str, Any] | None = None
+
+    def queue_command(self, command: dict[str, Any]) -> None:
+        """Send ``command`` with the answer to the next Z-frame."""
+        self.pending.pop(command["cm"], None)
+        self.pending[command["cm"]] = command
+
+    def next_command(self) -> dict[str, Any] | None:
+        """Take the oldest pending command (None -> {"cm":"NONE"})."""
+        if not self.pending:
+            return None
+        key = next(iter(self.pending))
+        return self.pending.pop(key)
 
 
 class EcolifeServer:
@@ -233,7 +249,15 @@ class EcolifeServer:
             _LOGGER.debug("Telemetry from %s: %s", state.token, payload)
             state.telemetry = payload
             state.values.update(interpret_telemetry(payload))
-            reply = command_frame(frame, state.key)
+            command = state.next_command()
+            more = bool(state.pending)
+            if command is not None:
+                _LOGGER.debug("Sending command to %s: %s (more: %s)", state.token, command, more)
+                state.last_command = command
+                state.history.append(
+                    {"time": now.isoformat(), "type": "R" if more else "S", "payload": command}
+                )
+            reply = command_frame(frame, state.key, command, more=more)
         for listener in list(self._listeners.get(state.token, [])):
             listener()
         return reply

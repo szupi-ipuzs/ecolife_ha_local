@@ -4,9 +4,6 @@
       "voc": {
         "default": "mdi:molecule"
       },
-      "led_brightness": {
-        "default": "mdi:brightness-6"
-      },
       "ip_address": {
         "default": "mdi:ip-network"
       },
@@ -15,6 +12,17 @@
       },
       "pollution_level": {
         "default": "mdi:air-filter"
+      }
+    },
+    "number": {
+      "led_start": {
+        "default": "mdi:clock-start"
+      },
+      "led_stop": {
+        "default": "mdi:clock-end"
+      },
+      "led_brightness": {
+        "default": "mdi:brightness-6"
       }
     }
   }

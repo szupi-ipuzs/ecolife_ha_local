@@ -64,9 +64,6 @@
       "voc": {
         "name": "VOC"
       },
-      "led_brightness": {
-        "name": "Jasność LED"
-      },
       "ip_address": {
         "name": "Adres IP"
       },
@@ -75,6 +72,17 @@
       },
       "pollution_level": {
         "name": "Poziom zanieczyszczenia"
+      }
+    },
+    "number": {
+      "led_start": {
+        "name": "Harmonogram LED – początek"
+      },
+      "led_stop": {
+        "name": "Harmonogram LED – koniec"
+      },
+      "led_brightness": {
+        "name": "Jasność LED"
       }
     }
   },

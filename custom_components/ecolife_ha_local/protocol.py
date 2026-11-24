@@ -138,12 +138,19 @@ def register_reply(frame: Frame) -> bytes:
     return base64.b64encode(_aes_cbc(AP_KEY, frame.iv, block, encrypt=True))
 
 
-def command_frame(frame: Frame, key: bytes, command: dict[str, Any] | None = None) -> bytes:
-    """Answer to a Z-frame (S-frame) carrying ``command``."""
+def command_frame(
+    frame: Frame, key: bytes, command: dict[str, Any] | None = None, *, more: bool = False
+) -> bytes:
+    """Answer to a Z-frame carrying ``command``.
+
+    The cloud prefixes the reply with ``S`` for the last (or only) command and
+    with ``R`` when more commands follow; after an ``R`` the device reports
+    again immediately (~1 s) to fetch the next one.
+    """
     raw = json.dumps(command or COMMAND_NONE, separators=(",", ":")).encode()
     raw += os.urandom(-len(raw) % 16)
     ct = _aes_cbc(key, frame.iv, raw, encrypt=True)
-    return b"S" + base64.b64encode(frame.iv) + base64.b64encode(ct)
+    return (b"R" if more else b"S") + base64.b64encode(frame.iv) + base64.b64encode(ct)
 
 
 def generate_token() -> str:

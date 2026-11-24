@@ -15,7 +15,7 @@ from .const import CONF_KEY, CONF_TOKEN, DOMAIN, SUBENTRY_DEVICE
 from .protocol import decode_key
 from .server import DeviceState, EcolifeServer
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.NUMBER, Platform.SENSOR]
 
 type EcolifeLocalConfigEntry = ConfigEntry[EcolifeServer]
 
