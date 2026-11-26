@@ -260,8 +260,12 @@ async def test_unknown_device_and_wrong_key(hass: HomeAssistant) -> None:
         result["flow_id"], {"next_step_id": "existing_device"}
     )
     assert result["type"] is FlowResultType.FORM
-    schema_defaults = {str(k): k.default() for k in result["data_schema"].schema if hasattr(k, "default") and callable(k.default)}
-    assert schema_defaults[CONF_TOKEN] == TOKEN
+    suggested = {
+        str(k): k.description["suggested_value"]
+        for k in result["data_schema"].schema
+        if k.description and "suggested_value" in k.description
+    }
+    assert suggested[CONF_TOKEN] == TOKEN
 
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"], {"name": "Bedroom", CONF_TOKEN: TOKEN, CONF_KEY: "bad"}
@@ -299,14 +303,31 @@ async def test_new_device_flow(hass: HomeAssistant) -> None:
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"], {"next_step_id": "new_device"}
     )
-    ph = result["description_placeholders"]
-    assert len(ph["token"]) == 8 and len(base64.b64decode(ph["key"])) == 16
-    assert f"--port {port}" in ph["command"] and ph["token"] in ph["command"]
-    result = await hass.config_entries.subentries.async_configure(result["flow_id"], {"name": "Kitchen"})
+    assert result["description_placeholders"]["port"] == str(port)
+    # The generated credentials are prefilled in editable fields.
+    suggested = {
+        str(field): field.description["suggested_value"]
+        for field in result["data_schema"].schema
+        if field.description and "suggested_value" in field.description
+    }
+    token, key = suggested[CONF_TOKEN], suggested[CONF_KEY]
+    assert len(token) == 8 and token.isalnum() and len(base64.b64decode(key)) == 16
+
+    # Invalid edits are rejected and the form is shown again.
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"name": "Kitchen", CONF_TOKEN: "short", CONF_KEY: key}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {CONF_TOKEN: "invalid_token"}
+
+    # Whatever is in the fields on submit is stored.
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"name": "Kitchen", CONF_TOKEN: " edited00 ", CONF_KEY: key}
+    )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
     sub = next(iter(entry.subentries.values()))
-    assert sub.title == "Kitchen" and sub.data == {CONF_TOKEN: ph["token"], CONF_KEY: ph["key"]}
+    assert sub.title == "Kitchen" and sub.data == {CONF_TOKEN: "edited00", CONF_KEY: key}
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 

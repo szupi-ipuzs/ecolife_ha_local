@@ -32,6 +32,33 @@ PORT_SELECTOR = NumberSelector(
 )
 
 
+def _credentials_schema() -> vol.Schema:
+    """Name, token and key of a device."""
+    return vol.Schema(
+        {
+            vol.Required(CONF_NAME, default="EcoLife"): str,
+            vol.Required(CONF_TOKEN): TextSelector(),
+            vol.Required(CONF_KEY): TextSelector(),
+        }
+    )
+
+
+def _validate_credentials(
+    user_input: dict[str, Any],
+) -> tuple[str, str, dict[str, str]]:
+    """Return the stripped token and key, and errors for invalid ones."""
+    errors: dict[str, str] = {}
+    token = user_input[CONF_TOKEN].strip()
+    key = user_input[CONF_KEY].strip()
+    if len(token) != TOKEN_LENGTH or not token.isalnum():
+        errors[CONF_TOKEN] = "invalid_token"
+    try:
+        decode_key(key)
+    except ValueError:
+        errors[CONF_KEY] = "invalid_key"
+    return token, key, errors
+
+
 def _port_is_free(port: int) -> bool:
     """The server needs the port for both TCP and UDP."""
     for kind in (socket.SOCK_STREAM, socket.SOCK_DGRAM):
@@ -99,24 +126,27 @@ class DeviceSubentryFlow(ConfigSubentryFlow):
     async def async_step_new_device(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
-        """Show freshly generated credentials and how to provision the device."""
+        """Show freshly generated credentials and how to provision the device.
+
+        The token and key are prefilled in editable fields (text in the form
+        description can't be selected in the dialog, fields can be copied from).
+        Whatever they hold on submit is what gets stored.
+        """
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self._async_create(user_input[CONF_NAME], self._token, self._key)
+            token, key, errors = _validate_credentials(user_input)
+            if not errors:
+                return self._async_create(user_input[CONF_NAME], token, key)
         host = await async_get_source_ip(self.hass)
         port = self._get_entry().data[CONF_PORT]
         return self.async_show_form(
             step_id="new_device",
-            data_schema=vol.Schema({vol.Required(CONF_NAME, default="EcoLife"): str}),
-            description_placeholders={
-                "host": host,
-                "port": str(port),
-                "token": self._token,
-                "key": self._key,
-                "command": (
-                    f"python provision_device.py --ssid YOUR_WIFI --password YOUR_PASSWORD "
-                    f"--host {host} --port {port} --token {self._token} --key {self._key}"
-                ),
-            },
+            data_schema=self.add_suggested_values_to_schema(
+                _credentials_schema(),
+                user_input or {CONF_TOKEN: self._token, CONF_KEY: self._key},
+            ),
+            description_placeholders={"host": host, "port": str(port)},
+            errors=errors,
         )
 
     async def async_step_existing_device(
@@ -125,30 +155,18 @@ class DeviceSubentryFlow(ConfigSubentryFlow):
         """Enter token and key of an already provisioned device."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            token = user_input[CONF_TOKEN].strip()
-            key = user_input[CONF_KEY].strip()
-            if len(token) != TOKEN_LENGTH or not token.isalnum():
-                errors[CONF_TOKEN] = "invalid_token"
-            try:
-                decode_key(key)
-            except ValueError:
-                errors[CONF_KEY] = "invalid_key"
+            token, key, errors = _validate_credentials(user_input)
             if not errors:
                 return self._async_create(user_input[CONF_NAME], token, key)
 
         # Suggest a token seen from an unknown device, if any.
         server = getattr(self._get_entry(), "runtime_data", None)
         seen = next(iter(getattr(server, "unknown_tokens", {}) or {}), "")
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_NAME, default="EcoLife"): str,
-                vol.Required(CONF_TOKEN, default=seen): str,
-                vol.Required(CONF_KEY): TextSelector(),
-            }
-        )
         return self.async_show_form(
             step_id="existing_device",
-            data_schema=self.add_suggested_values_to_schema(schema, user_input),
+            data_schema=self.add_suggested_values_to_schema(
+                _credentials_schema(), user_input or {CONF_TOKEN: seen}
+            ),
             errors=errors,
         )
 

@@ -35,9 +35,11 @@
         },
         "new_device": {
           "title": "Provision a new device",
-          "description": "These credentials were generated for the new device:\n\n* Report server: `{host}:{port}`\n* Token: `{token}`\n* Key: `{key}`\n\n1. Long-touch the top of the device until it enters pairing mode (Wi-Fi network `ecolife-add-device` appears).\n2. Connect a computer to `ecolife-add-device`.\n3. Run the `provision_device.py` tool from this integration's repository:\n\n`{command}`\n\n4. Submit this form. The device appears as soon as it reports to Home Assistant.\n\nIf `{host}` is not the address the device can reach Home Assistant at, use the correct one with `--host`.",
+          "description": "A token and key were generated for the new device (fields below). The device will report to `{host}:{port}`.\n\n1. Long-touch the top of the device until it enters pairing mode (Wi-Fi network `ecolife-add-device` appears).\n2. Connect a computer to `ecolife-add-device`.\n3. Run the `provision_device.py` tool from this integration's repository, pasting the token and key from the fields below:\n\n`python provision_device.py --ssid YOUR_WIFI --password YOUR_PASSWORD --host {host} --port {port} --token TOKEN --key KEY`\n\n4. Submit this form. The device appears as soon as it reports to Home Assistant.\n\nIf `{host}` is not the address the device can reach Home Assistant at, use the correct one with `--host`. If you change the token or key, provision the device with the changed values.",
           "data": {
-            "name": "Name"
+            "name": "Name",
+            "token": "Token",
+            "key": "Key (base64)"
           }
         },
         "existing_device": {

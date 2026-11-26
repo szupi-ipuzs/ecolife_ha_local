@@ -35,9 +35,11 @@
         },
         "new_device": {
           "title": "Parowanie nowego urządzenia",
-          "description": "Dla nowego urządzenia wygenerowano dane:\n\n* Serwer: `{host}:{port}`\n* Token: `{token}`\n* Klucz: `{key}`\n\n1. Przytrzymaj górę urządzenia, aż wejdzie w tryb parowania (pojawi się sieć Wi-Fi `ecolife-add-device`).\n2. Połącz komputer z siecią `ecolife-add-device`.\n3. Uruchom narzędzie `provision_device.py` z repozytorium tej integracji:\n\n`{command}`\n\n4. Zatwierdź ten formularz. Urządzenie pojawi się, gdy tylko połączy się z Home Assistant.\n\nJeśli `{host}` nie jest adresem, pod którym urządzenie widzi Home Assistant, podaj właściwy w `--host`.",
+          "description": "Dla nowego urządzenia wygenerowano token i klucz (pola poniżej). Urządzenie będzie łączyć się z `{host}:{port}`.\n\n1. Przytrzymaj górę urządzenia, aż wejdzie w tryb parowania (pojawi się sieć Wi-Fi `ecolife-add-device`).\n2. Połącz komputer z siecią `ecolife-add-device`.\n3. Uruchom narzędzie `provision_device.py` z repozytorium tej integracji, wklejając token i klucz z pól poniżej:\n\n`python provision_device.py --ssid YOUR_WIFI --password YOUR_PASSWORD --host {host} --port {port} --token TOKEN --key KEY`\n\n4. Zatwierdź ten formularz. Urządzenie pojawi się, gdy tylko połączy się z Home Assistant.\n\nJeśli `{host}` nie jest adresem, pod którym urządzenie widzi Home Assistant, podaj właściwy w `--host`. Jeśli zmienisz token lub klucz, sparuj urządzenie ze zmienionymi wartościami.",
           "data": {
-            "name": "Nazwa"
+            "name": "Nazwa",
+            "token": "Token",
+            "key": "Klucz (base64)"
           }
         },
         "existing_device": {
