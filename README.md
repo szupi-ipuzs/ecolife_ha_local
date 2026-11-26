@@ -4,6 +4,19 @@ Cloud-free integration for **EcoLife** air quality sensors (ECL01). Home Assista
 the EcoLife report server: the device is provisioned to send its data to Home Assistant instead of
 `rest.ecolife.eu.com`. No EcoLife account or internet connection is needed.
 
+## Installation
+
+### HACS (custom repository)
+1. HACS → ⋮ → *Custom repositories* → add `https://github.com/szupi-ipuzs/ecolife_ha_local`, category **Integration**.
+2. Install **EcoLife Local** and restart Home Assistant.
+
+### Manual
+Copy `custom_components/ecolife_ha_local` into `<config>/custom_components/` and restart Home Assistant.
+
+Then go to **Settings → Devices & services → Add integration → EcoLife Local**.
+
+Requires Home Assistant 2025.8 or newer.
+
 ## How it works
 
 * **Hub = local server.** Adding the integration starts a TCP server on port `58300` (configurable)
@@ -67,3 +80,14 @@ The P-frame answer was derived from the cloud's answers in MITM captures: all of
 pip install pytest-homeassistant-custom-component
 pytest
 ```
+
+## Disclaimer
+
+This is an independent, unofficial project. The author is not affiliated with,
+endorsed by, or sponsored by Eco Life Sp. z o.o. "EcoLife" and related names
+and logos are trademarks of their respective owners and are used here only to
+identify the devices this integration works with. Use at your own risk.
+
+## License
+
+[MIT](LICENSE)

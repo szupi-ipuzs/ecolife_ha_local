@@ -1,13 +1,13 @@
 {
   "domain": "ecolife_ha_local",
   "name": "EcoLife Local",
-  "codeowners": [],
+  "codeowners": ["@szupi-ipuzs"],
   "config_flow": true,
   "dependencies": ["network"],
-  "documentation": "https://github.com/your-user/ha-ecolife-local",
+  "documentation": "https://github.com/szupi-ipuzs/ecolife_ha_local",
   "integration_type": "hub",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/your-user/ha-ecolife-local/issues",
+  "issue_tracker": "https://github.com/szupi-ipuzs/ecolife_ha_local/issues",
   "requirements": [],
   "version": "0.1.0"
 }
