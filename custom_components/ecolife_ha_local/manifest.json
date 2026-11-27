@@ -1,6 +1,7 @@
 {
   "domain": "ecolife_ha_local",
   "name": "EcoLife Local",
+  "categories": ["sensors.air_quality"],
   "codeowners": ["@szupi-ipuzs"],
   "config_flow": true,
   "dependencies": ["network"],
